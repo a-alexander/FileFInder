@@ -1,38 +1,211 @@
-#!/usr/bin/python
-
+import os
+import subprocess
+import sys
+from concurrent import futures
 
 import wx
-import wx.lib.imagebrowser as ib
-import random
+
+from app.WXVirtualList import VirtualList
+from app.file_search import locate_files_in_multiple_paths
+from app.wx_helpers import resource_path, make_button, setup_menu, create_text_control_box
+from app.wx_decorators import submit_to_pool_executor, wx_call_after
+
+USER_DETAILS_FOLDER = os.path.expanduser(r'~/Documents')
+
+thread_pool_executor = futures.ThreadPoolExecutor(max_workers=1)
 
 
-class Toolframe(wx.Frame):
+class GUI(wx.Frame):
     def __init__(self, parent, id, title):
-        wx.Frame.__init__(self, parent, id, title, (-1, -1), wx.Size(810, 100))
+        self.first_run = True
+        wx.Frame.__init__(self, parent, id, title, (-1, -1), wx.Size(1100, 800))
 
         self.SetBackgroundColour('white')
-
-        sizer = wx.BoxSizer(wx.HORIZONTAL)
-
-        self.Bind(wx.EVT_BUTTON, self.on_btn_press, id=1)
-
-        self.tc1 = wx.TextCtrl(self)
-        font = wx.Font(40, wx.DECORATIVE, wx.NORMAL, wx.BOLD)
-        self.tc1.SetFont(font)
-        sizer.Add(wx.Button(self, 1, 'Search Files'), 1, wx.EXPAND)
-        sizer.Add(self.tc1, 4, flag=wx.EXPAND)
-
-        self.SetSizer(sizer)
+        setup_menu(self)
+        self.sb = self.CreateStatusBar()
+        self.project_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.results_list_ctrl = None
+        self.search_paths_list = None
+        self.key_phrase_input_box = None
+        self.file_extension_input = None
+        self.project_sizer.Add(self.setup_primary_column(), 1, flag=wx.TOP | wx.LEFT | wx.RIGHT, border=10)
+        self.project_sizer.Add(self.setup_file_results_area(), 6, flag=wx.EXPAND | wx.LEFT | wx.TOP, border=10)
+        self.available_paths = []
+        self.refresh_search_paths_list()
+        self.SetSizer(self.project_sizer)
         self.Centre()
+        self.Maximize()
 
-    def on_btn_press(self, event):
-        s = f'{event}'
-        self.tc1.SetValue(s)
+        self.selected_match = None
+        self.selected_path = None
+        self.dialog = None
+        self.data = {}
+
+    def setup_primary_column(self):
+        col1 = wx.BoxSizer(wx.VERTICAL)
+
+        path_sizer = wx.StaticBoxSizer(wx.VERTICAL, self, label='1. Add a directory to search')
+        add_folder_button = make_button(self, resource_path(r'icons/add.png'), 35, but_id=4,
+                                        tooltip='Add a new location to the saved search areas')
+        path_sizer.Add(add_folder_button, 0, wx.ALL, border=5)
+        col1.Add(path_sizer)
+
+        self.search_paths_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.search_paths_list = wx.ListCtrl(self, -1, size=(260, 100),
+                                             style=wx.LC_REPORT
+                                                   | wx.BORDER_NONE
+                                                   | wx.LC_SORT_ASCENDING)
+
+        self.search_paths_list.InsertColumn(0, 'Search Directory', width=260)
+        self.search_paths_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.catch_selected_path)
+        self.search_paths_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.remove_selected_path)
+
+        self.search_paths_sizer.Add(wx.StaticText(self, label='[Double click path to remove]'), 0, wx.ALL, border=5)
+        self.search_paths_sizer.Add(self.search_paths_list, 0, wx.ALL, border=5)
+        col1.Add(self.search_paths_sizer)
+        self.key_phrase_input_box, search_box = create_text_control_box(self, self.catch_key_press,
+                                                                        "2. Enter some part of File Name (Optional)")
+        self.file_extension_input, extension_box = create_text_control_box(self, self.catch_key_press,
+                                                                           "3. Enter the File Extension (Optional)")
+
+        col1.Add(search_box, 0, wx.ALL, border=0)
+        col1.Add(extension_box, 0, wx.ALL, border=0)
+
+        search_button = make_button(self, resource_path(r'icons/search.png'), 60, but_id=1,
+                                    tooltip='Search all your paths.')
+        col1.Add(search_button, 0, wx.ALL, border=10)
+
+        self.Bind(wx.EVT_BUTTON, self.initiate_search_process, id=1)
+        self.Bind(wx.EVT_BUTTON, self.add_search_path, id=4)
+        return col1
+
+    def setup_file_results_area(self):
+        """Creates the search results area with all the matching files listed out"""
+        col2 = wx.BoxSizer(wx.VERTICAL)
+        col2.Add(wx.StaticText(self, label='Search results: '))
+
+        # tee up the list_ctrl mixin
+        self.results_list_ctrl = VirtualList(self)
+
+        # line below enables double clicking of items in the list
+        self.results_list_ctrl.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.open_search_match_file)
+        self.results_list_ctrl.Bind(wx.EVT_LIST_ITEM_SELECTED, self.catch_selected_match)
+
+        col2.Add(self.results_list_ctrl, 1, wx.EXPAND | wx.TOP, 3)
+        col2.Add((-1, 10))
+        return col2
+
+    def refresh_search_paths_list(self):
+        self.search_paths_list.DeleteAllItems()
+
+        for path in self.available_paths:
+            self.search_paths_list.InsertItem(0, path)
+        self.search_paths_sizer.ShowItems(show=len(self.available_paths))
+        self.Layout()
+
+    def add_search_path(self, event):
+        some_place_in_folder = self.file_selector_popup('Select Search Directory', "")
+        if not some_place_in_folder:
+            return
+        self.available_paths.append(some_place_in_folder)
+        paths_string = ' '.join(some_place_in_folder)
+        self.sb.SetStatusText(f'{paths_string} Added to search paths...')
+        self.refresh_search_paths_list()
+
+    def remove_selected_path(self, event):
+        self.available_paths.remove(self.selected_path)
+        self.sb.SetStatusText(f'{self.selected_path} Removed from search paths...')
+        self.refresh_search_paths_list()
+
+    def initiate_search_process(self, event):
+        """This is executed whenever the 'Search' button is clicked"""
+        if not self.available_paths:
+            self.sb.SetStatusText(f'No paths available...')
+            return
+
+        self.dialog = wx.BusyInfo(f"Searching your saved location for {self.key_phrase_input_box.GetValue()}...")
+
+        phrase = self.key_phrase_input_box.GetValue() if self.key_phrase_input_box.GetValue() != '' else None
+        ext = self.file_extension_input.GetValue() if self.file_extension_input.GetValue() != '' else None
+        self.search(phrase, ext, True)
+
+    @wx_call_after
+    def set_sb_text(self, text=''):
+        self.sb.SetStatusText(text)
+
+    @wx_call_after
+    def results_box_update(self, data):
+        self.results_list_ctrl.add_data(data)
+
+    @submit_to_pool_executor(thread_pool_executor)
+    def search(self, phrase, ext, ignore_case):
+        self.set_sb_text('Searching...')
+
+        all_matches = locate_files_in_multiple_paths(self.available_paths, key_phrase=phrase, ext=ext,
+                                                     ignore_case=ignore_case)
+
+        self.data = {}
+
+        for count, match in enumerate(all_matches):
+            self.data[count] = [str(match.file_name),
+                                str(match.date_created),
+                                str(match.date_modified),
+                                str(match.last_accessed),
+                                str(match.file_type),
+                                match.size,
+                                str(match.path),
+                                ]
+
+        self.results_box_update(self.data)
+        self.set_sb_text(f'Search complete. {len(self.data)} results found.')
+        self.dialog = None
+
+    def catch_key_press(self, event):
+        # if main enter key (13) or numpad enter key (370) is pressed
+        if event.GetKeyCode() in [13, 370]:
+            self.initiate_search_process(event)
+        else:
+            event.Skip()
+
+    def catch_selected_match(self, event):
+        number = event.Index
+        self.selected_match = event.EventObject.itemDataMap[number]
+
+    def catch_selected_path(self, event):
+        self.selected_path = event.GetText()
+
+    def open_search_match_file(self, event):
+        for sel in self.results_list_ctrl.get_selected_items():
+            filepath = self.results_list_ctrl.GetItemText(sel, 6)
+            '''nice little code chunk below opens the file in file path with 
+            the default program for that file extension.'''
+            if sys.platform.startswith('darwin'):
+                subprocess.call(('open', filepath))
+            elif os.name == 'nt':
+                os.startfile(filepath)
+            elif os.name == 'posix':
+                subprocess.call(('xdg-open', filepath))
+
+    def on_close_event(self, event):
+        self.Close()
+
+    def file_selector_popup(self, promptmessage, wildcard):
+        dlg = wx.DirDialog(
+            self, message=promptmessage,
+            style=wx.DD_DEFAULT_STYLE | wx.DD_CHANGE_DIR)
+        if dlg.ShowModal() == wx.ID_OK:
+            Dir = dlg.GetPath()
+            dlg.Destroy()
+            return Dir
+        else:
+            dlg.Destroy()
+            return None
 
 
 class MyApp(wx.App):
     def OnInit(self):
-        frame = Toolframe(None, -1, 'File Finder')
+        frame = GUI(None, -1, 'Data Hunter')
+        # frame.SetIcon(wx.Icon(resource_path('logo.ico'), wx.BITMAP_TYPE_ICO))
         frame.Show(True)
         self.SetTopWindow(frame)
         return True

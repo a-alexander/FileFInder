@@ -14,7 +14,6 @@ def wx_call_after(target):
 
 def submit_to_pool_executor(executor):
     """Decorates a method to be submitted to the passed in executor"""
-
     def decorator(target):
         @functools.wraps(target)
         def wrapper(*args, **kwargs):

@@ -7,6 +7,9 @@ from typing import Optional
 from unsync import unsync, Unfuture
 
 
+USER_DETAILS_FOLDER = os.path.expanduser(r'~/Documents')
+
+
 class SearchMatch:
     """Individual class for assets, individual file instances"""
 

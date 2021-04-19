@@ -10,8 +10,8 @@ from app.WXVirtualList import VirtualList
 from app.file_search import locate_files_in_multiple_paths
 from app.wx_helpers import resource_path, make_button, setup_menu, create_text_control_box
 from app.wx_decorators import submit_to_pool_executor, wx_call_after
-
-USER_DETAILS_FOLDER = os.path.expanduser(r'~/Documents')
+from app.models import File, ProjectArea, available_paths, get_file_matches
+from app.db import session
 
 thread_pool_executor = futures.ThreadPoolExecutor(max_workers=1)
 
@@ -31,7 +31,7 @@ class GUI(wx.Frame):
         self.file_extension_input = None
         self.project_sizer.Add(self.setup_primary_column(), 1, flag=wx.TOP | wx.LEFT | wx.RIGHT, border=10)
         self.project_sizer.Add(self.setup_file_results_area(), 6, flag=wx.EXPAND | wx.LEFT | wx.TOP, border=10)
-        self.available_paths = []
+        self.available_paths: list[ProjectArea] = available_paths()
         self.refresh_search_paths_list()
         self.SetSizer(self.project_sizer)
         self.Centre()
@@ -52,12 +52,13 @@ class GUI(wx.Frame):
         col1.Add(path_sizer)
 
         self.search_paths_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.search_paths_list = wx.ListCtrl(self, -1, size=(260, 100),
+        self.search_paths_list = wx.ListCtrl(self, -1, size=(280, 100),
                                              style=wx.LC_REPORT
                                                    | wx.BORDER_NONE
                                                    | wx.LC_SORT_ASCENDING)
 
-        self.search_paths_list.InsertColumn(0, 'Search Directory', width=260)
+        self.search_paths_list.InsertColumn(0, 'Search Directory', width=210)
+        self.search_paths_list.InsertColumn(1, 'Archived', width=50)
         self.search_paths_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.catch_selected_path)
         self.search_paths_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.remove_selected_path)
 
@@ -100,7 +101,8 @@ class GUI(wx.Frame):
         self.search_paths_list.DeleteAllItems()
 
         for path in self.available_paths:
-            self.search_paths_list.InsertItem(0, path)
+            index = self.search_paths_list.InsertItem(0, path.path)
+            self.search_paths_list.InsertItem(1, path.archived)
         self.search_paths_sizer.ShowItems(show=len(self.available_paths))
         self.Layout()
 
@@ -108,14 +110,21 @@ class GUI(wx.Frame):
         some_place_in_folder = self.file_selector_popup('Select Search Directory', "")
         if not some_place_in_folder:
             return
-        self.available_paths.append(some_place_in_folder)
+        p = ProjectArea(path=some_place_in_folder)
+        session.add(p)
+        session.commit()
+        self.available_paths.append(p)
         paths_string = ' '.join(some_place_in_folder)
         self.sb.SetStatusText(f'{paths_string} Added to search paths...')
         self.refresh_search_paths_list()
+        self.archive_location(p)
 
     def remove_selected_path(self, event):
         self.available_paths.remove(self.selected_path)
-        self.sb.SetStatusText(f'{self.selected_path} Removed from search paths...')
+        self.sb.SetStatusText(f'{self.selected_path.path} Removed from search paths...')
+        project_area_to_go = self.selected_path
+        self.selected_path = None
+        project_area_to_go.delete()
         self.refresh_search_paths_list()
 
     def initiate_search_process(self, event):
@@ -138,20 +147,21 @@ class GUI(wx.Frame):
     def results_box_update(self, data):
         self.results_list_ctrl.add_data(data)
 
-    @submit_to_pool_executor(thread_pool_executor)
+    def archive_location(self, path: ProjectArea):
+        path.discover_files()
+
     def search(self, phrase, ext, ignore_case):
         self.set_sb_text('Searching...')
         start = time()
-        all_matches = locate_files_in_multiple_paths(self.available_paths, key_phrase=phrase, ext=ext,
-                                                     ignore_case=ignore_case)
+        all_matches = get_file_matches(phrase=phrase, ext=ext)
 
         self.data = {}
 
         for count, match in enumerate(all_matches):
             self.data[count] = [str(match.file_name),
-                                str(match.date_created),
-                                str(match.date_modified),
-                                str(match.last_accessed),
+                                str(match.created),
+                                str(match.modified),
+                                str(match.accessed),
                                 str(match.file_type),
                                 match.size,
                                 str(match.path),
@@ -173,7 +183,8 @@ class GUI(wx.Frame):
         self.selected_match = event.EventObject.itemDataMap[number]
 
     def catch_selected_path(self, event):
-        self.selected_path = event.GetText()
+        path = event.GetText()
+        self.selected_path = next(p for p in self.available_paths if p.path == path)
 
     def open_search_match_file(self, event):
         for sel in self.results_list_ctrl.get_selected_items():

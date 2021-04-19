@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 from concurrent import futures
+from time import time
 
 import wx
 
@@ -140,7 +141,7 @@ class GUI(wx.Frame):
     @submit_to_pool_executor(thread_pool_executor)
     def search(self, phrase, ext, ignore_case):
         self.set_sb_text('Searching...')
-
+        start = time()
         all_matches = locate_files_in_multiple_paths(self.available_paths, key_phrase=phrase, ext=ext,
                                                      ignore_case=ignore_case)
 
@@ -157,7 +158,7 @@ class GUI(wx.Frame):
                                 ]
 
         self.results_box_update(self.data)
-        self.set_sb_text(f'Search complete. {len(self.data)} results found.')
+        self.set_sb_text(f'Search complete in {time() - start:.1f} seconds. {len(self.data)} results found.')
         self.dialog = None
 
     def catch_key_press(self, event):

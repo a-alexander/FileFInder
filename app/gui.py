@@ -102,7 +102,7 @@ class GUI(wx.Frame):
 
         for path in self.available_paths:
             index = self.search_paths_list.InsertItem(0, path.path)
-            self.search_paths_list.InsertItem(1, path.archived)
+            self.search_paths_list.SetItem(index, 1, path.archived)
         self.search_paths_sizer.ShowItems(show=len(self.available_paths))
         self.Layout()
 
@@ -114,8 +114,7 @@ class GUI(wx.Frame):
         session.add(p)
         session.commit()
         self.available_paths.append(p)
-        paths_string = ' '.join(some_place_in_folder)
-        self.sb.SetStatusText(f'{paths_string} Added to search paths...')
+        self.sb.SetStatusText(f'{some_place_in_folder} Added to search paths...')
         self.refresh_search_paths_list()
         self.archive_location(p)
 

@@ -202,6 +202,7 @@ class GUI(wx.Frame):
         archive_path = zip_up_files(files, zip_file_name)
 
         upload_file(archive_path, os.path.basename(archive_path))
+        os.remove(archive_path)
         self.sb.SetStatusText('Results zipped up to cloud...')
 
     def open_search_match_file(self, event):

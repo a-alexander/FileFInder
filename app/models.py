@@ -119,8 +119,12 @@ def zip_up_files(files: list[str], archive_name: str) -> str:
     save_location = os.path.dirname(__file__)
     archive_path = os.path.join(save_location, archive_name)
     archive = zipfile.ZipFile(archive_path, 'w')
-    for no, file in enumerate(files, 1):
+    no = 1
+    for file in files:
+        if not os.path.exists(file):
+            continue
         new_name = f'{no}_{os.path.basename(file)}'
         archive.write(file, new_name, compress_type=zipfile.ZIP_DEFLATED)
+        no += 1
     archive.close()
     return archive_path

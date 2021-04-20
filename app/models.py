@@ -18,6 +18,12 @@ def file_datetime_extractor(file_details, attr: str = 'st_ctime'):
     return datetime.fromtimestamp(file_attr)
 
 
+def parse_date(date):
+    if date is None:
+        return '-'
+    return date.strftime('%Y-%m-%d %H:%M:%S')
+
+
 class File(Base):
     __tablename__ = "file_model"
     id = Column(Integer, primary_key=True)
@@ -49,15 +55,15 @@ class File(Base):
 
     @property
     def created(self):
-        return self.parse_date(self.date_created)
+        return parse_date(self.date_created)
 
     @property
     def modified(self):
-        return self.parse_date(self.date_modified)
+        return parse_date(self.date_modified)
 
     @property
     def accessed(self):
-        return self.parse_date(self.last_accessed)
+        return parse_date(self.last_accessed)
 
 
 class ProjectArea(Base):
@@ -66,6 +72,11 @@ class ProjectArea(Base):
     path = Column(String)
     files = relationship("File", backref=backref("project_area"), cascade="all, delete-orphan")
     archived = Column(Boolean, default=False)
+    last_archived = Column(DateTime, onupdate=datetime.utcnow)
+
+    @property
+    def last_archived_str(self):
+        return parse_date(self.last_archived)
 
     def discover_files(self):
         """Populate the files for the project."""
@@ -89,8 +100,8 @@ def available_paths() -> list[ProjectArea]:
 
 
 def get_file_matches(project_areas: list[ProjectArea] = None,
-                 phrase: Optional[str] = None,
-                 ext: Optional[str] = None) -> list[File]:
+                     phrase: Optional[str] = None,
+                     ext: Optional[str] = None) -> list[File]:
     bare_query = session.query(File)
     if phrase:
         bare_query = bare_query.filter(File.file_name.like(phrase))

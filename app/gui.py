@@ -29,7 +29,7 @@ class GUI(wx.Frame):
         self.search_paths_list = None
         self.key_phrase_input_box = None
         self.file_extension_input = None
-        self.project_sizer.Add(self.setup_primary_column(), 1, flag=wx.TOP | wx.LEFT | wx.RIGHT, border=10)
+        self.project_sizer.Add(self.setup_primary_column(), 2, flag=wx.TOP | wx.LEFT | wx.RIGHT, border=10)
         self.project_sizer.Add(self.setup_file_results_area(), 6, flag=wx.EXPAND | wx.LEFT | wx.TOP, border=10)
         self.available_paths: list[ProjectArea] = available_paths()
         self.refresh_search_paths_list()
@@ -52,13 +52,13 @@ class GUI(wx.Frame):
         col1.Add(path_sizer)
 
         self.search_paths_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.search_paths_list = wx.ListCtrl(self, -1, size=(280, 100),
+        self.search_paths_list = wx.ListCtrl(self, -1, size=(450, 100),
                                              style=wx.LC_REPORT
                                                    | wx.BORDER_NONE
                                                    | wx.LC_SORT_ASCENDING)
 
-        self.search_paths_list.InsertColumn(0, 'Search Directory', width=210)
-        self.search_paths_list.InsertColumn(1, 'Archived', width=50)
+        self.search_paths_list.InsertColumn(0, 'Search Directory', width=300)
+        self.search_paths_list.InsertColumn(1, 'Archived', width=150)
         self.search_paths_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.catch_selected_path)
         self.search_paths_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.remove_selected_path)
 
@@ -102,7 +102,7 @@ class GUI(wx.Frame):
 
         for path in self.available_paths:
             index = self.search_paths_list.InsertItem(0, path.path)
-            self.search_paths_list.SetItem(index, 1, path.archived)
+            self.search_paths_list.SetItem(index, 1, str(path.last_archived_str))
         self.search_paths_sizer.ShowItems(show=len(self.available_paths))
         self.Layout()
 
@@ -117,6 +117,7 @@ class GUI(wx.Frame):
         self.sb.SetStatusText(f'{some_place_in_folder} Added to search paths...')
         self.refresh_search_paths_list()
         self.archive_location(p)
+        self.refresh_search_paths_list()
 
     def remove_selected_path(self, event):
         self.available_paths.remove(self.selected_path)
@@ -145,6 +146,7 @@ class GUI(wx.Frame):
     @wx_call_after
     def results_box_update(self, data):
         self.results_list_ctrl.add_data(data)
+
 
     def archive_location(self, path: ProjectArea):
         path.discover_files()

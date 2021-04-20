@@ -2,7 +2,6 @@ import datetime
 import re
 import os
 import fnmatch
-import zipfile
 from typing import Optional
 from unsync import unsync, Unfuture
 
@@ -64,13 +63,3 @@ def locate_files_in_multiple_paths(paths: list[str],
          paths]).result()
 
 
-def zip_up_files(files: list[str], save_location: Optional[str] = None, archive_name: Optional[str] = None) -> str:
-    archive_name = f'{archive_name}.zip' or 'BRUKL_archive.zip'
-    save_location = save_location or os.path.dirname(__file__)
-    archive_path = os.path.join(save_location, archive_name)
-    archive = zipfile.ZipFile(archive_path, 'w')
-    for no, file in enumerate(files, 1):
-        new_name = f'{no}_{os.path.basename(file)}'
-        archive.write(file, new_name, compress_type=zipfile.ZIP_DEFLATED)
-    archive.close()
-    return archive_path

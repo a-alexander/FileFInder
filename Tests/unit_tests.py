@@ -1,6 +1,7 @@
 import pytest
 import os
-from app.file_search import locate_files_in_path, zip_up_files, locate_files_in_multiple_paths
+from app.file_search import locate_files_in_path, locate_files_in_multiple_paths
+from app.models import zip_up_files
 
 TEST_PATH = 'test_directory'
 

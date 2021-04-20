@@ -1,30 +1,60 @@
 import os
 import sys
 from typing import Optional, Callable
+from PIL import Image, ImageFilter
 
 import wx
 
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
+    print(f'{relative_path=}')
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_path, relative_path)
+
+    path = os.path.join(base_path, relative_path)
+    print(f'{path=}')
+    return path
+
+
+def wxImage_from_pil(pilImg):
+
+    wxImg = wx.Image(*pilImg.size)  # Always created with no transparency plane.
+    pilHasAlpha = pilImg.mode[-1] == 'A'
+
+    # First extract just the RGB data from the data string and insert it into wx.Image .
+    pilRgbStr = pilImg.convert('RGB').tobytes()
+    wxImg.SetData(pilRgbStr)
+
+    if pilHasAlpha:
+        pilImgStr = pilImg.convert('RGBA').tobytes()  # Harmless if original image mode is already "RGBA".
+
+        # Now, extract just the alpha data and insert it.
+        pilAlphaStr = pilImgStr[3::4]  # start at byte index 3 with a stride (byte skip) of 4.
+        wxImg.SetAlpha(pilAlphaStr)
+
+    return wxImg
 
 
 def scale_image(image_path, size):
-    img = wx.Image(resource_path(image_path), wx.BITMAP_TYPE_ANY)
-    w = img.GetWidth()
-    h = img.GetHeight()
+    img = Image.open(resource_path(image_path))
 
-    if w > h:
-        new_w = size
-        new_h = int(size * h / w)
+    img = img.filter(ImageFilter.GaussianBlur(6))
+
+    W, H = img.size
+
+    if W > H:
+        NewW = size
+
+        NewH = int(size * H / W)
     else:
-        new_h = size
-        new_w = int(size * w / h)
+        NewH = size
+        NewW = int(size * W / H)
 
-    img = img.Scale(new_w, new_h, quality=wx.IMAGE_QUALITY_HIGH)
-    return img
+    img = img.resize((NewH, NewW))
+
+    wx_img = wxImage_from_pil(img)
+
+    return wx_img
 
 
 def make_button(frame: wx.Frame, path_to_button: str, size: int, but_id: int = wx.ID_ANY,
@@ -42,10 +72,8 @@ def make_button(frame: wx.Frame, path_to_button: str, size: int, but_id: int = w
 
 def create_text_control_box(frame: wx.Frame, handler: Callable, label_text: Optional[str] = None) -> tuple[
     wx.TextCtrl, wx.BoxSizer]:
-    """"Creates a box with a text ctrl inside and staitc text above"""
+    """"Creates a box with a text ctrl inside and static text above"""
     box = wx.StaticBoxSizer(wx.VERTICAL, frame, label=label_text)
-    # search_st = wx.StaticText(frame, label=label_text)
-    # box.Add(search_st, 0, wx.ALL, border=5)
     input_control = wx.TextCtrl(frame)
     input_control.Bind(wx.EVT_KEY_DOWN, handler)
     box.Add(input_control, flag=wx.EXPAND | wx.ALL, border=5)

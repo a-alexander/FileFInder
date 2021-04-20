@@ -47,7 +47,7 @@ class GUI(wx.Frame):
         col1 = wx.BoxSizer(wx.VERTICAL)
 
         path_sizer = wx.StaticBoxSizer(wx.VERTICAL, self, label='1. Add a directory to search')
-        add_folder_button = make_button(self, resource_path(r'icons/add.png'), 35,
+        add_folder_button = make_button(self, resource_path(r'icons\add.png'), 60,
                                         tooltip='Add a new location to the saved search areas',
                                         func=self.add_search_path)
         path_sizer.Add(add_folder_button, 0, wx.ALL, border=5)
@@ -78,7 +78,7 @@ class GUI(wx.Frame):
         search_button = make_button(self, resource_path(r'icons/search.png'), 60,
                                     tooltip='Search all your paths.', func=self.initiate_search_process)
         col1.Add(search_button, 0, wx.ALL, border=10)
-        zip_button = make_button(self, resource_path(r'icons/all.png'), 60,
+        zip_button = make_button(self, resource_path(r'icons\send_to.png'), 60,
                                  tooltip='Compress results into a neat zip file.', func=self.upload_matches_to_cloud)
         col1.Add(zip_button, 0, wx.ALL, border=10)
 
@@ -119,8 +119,10 @@ class GUI(wx.Frame):
         self.available_paths.append(p)
         self.sb.SetStatusText(f'{some_place_in_folder} Added to search paths...')
         self.refresh_search_paths_list()
+        start = time()
         self.archive_location(p)
         self.refresh_search_paths_list()
+        self.sb.SetStatusText(f'{some_place_in_folder} archived in {time() - start:.1f} seconds.')
 
     def remove_selected_path(self, event):
         self.available_paths.remove(self.selected_path)

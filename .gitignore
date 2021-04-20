@@ -1,4 +1,7 @@
 */.pytest_cache
 build
+dist
 venv
+
+app/secrets/s3_secrets.json
 

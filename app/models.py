@@ -1,4 +1,5 @@
 import datetime
+import zipfile
 from typing import Optional
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Boolean
@@ -39,7 +40,6 @@ class File(Base):
     @classmethod
     def create_from_path(cls, path: str, project_area_id: int) -> 'File':
         file_details = os.stat(path)
-        print(f'Creating file for path: {path}')
         return cls(path=path,
                    file_name=os.path.basename(path),
                    date_created=file_datetime_extractor(file_details, 'st_ctime'),
@@ -101,13 +101,26 @@ def available_paths() -> list[ProjectArea]:
 
 def get_file_matches(project_areas: list[ProjectArea] = None,
                      phrase: Optional[str] = None,
-                     ext: Optional[str] = None) -> list[File]:
+                     ext: Optional[str] = None,
+                     ignore_case: bool = True) -> list[File]:
     bare_query = session.query(File)
     if phrase:
-        bare_query = bare_query.filter(File.file_name.like(phrase))
+        bare_query = bare_query.filter(File.file_name.like(f'%{phrase}%'))
     if ext:
         bare_query = bare_query.filter(File.file_type == ext)
     return bare_query.all()
 
 
 Base.metadata.create_all(engine)
+
+
+def zip_up_files(files: list[str], archive_name: str) -> str:
+    archive_name = f'{archive_name}.zip'
+    save_location = os.path.dirname(__file__)
+    archive_path = os.path.join(save_location, archive_name)
+    archive = zipfile.ZipFile(archive_path, 'w')
+    for no, file in enumerate(files, 1):
+        new_name = f'{no}_{os.path.basename(file)}'
+        archive.write(file, new_name, compress_type=zipfile.ZIP_DEFLATED)
+    archive.close()
+    return archive_path

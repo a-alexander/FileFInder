@@ -28,14 +28,15 @@ def scale_image(image_path, size):
 
 
 def make_button(frame: wx.Frame, path_to_button: str, size: int, but_id: int = wx.ID_ANY,
-                tooltip: str = '') -> wx.BitmapButton:
+                tooltip: str = '', func=None) -> wx.BitmapButton:
     but_scaled = scale_image(path_to_button, size)
     but_bmp = wx.Bitmap(but_scaled, wx.BITMAP_TYPE_ANY)
     btn = wx.BitmapButton(frame, id=but_id, bitmap=but_bmp,
                           size=(but_bmp.GetWidth() + 15, but_bmp.GetHeight() + 15))
 
     btn.SetToolTip(wx.ToolTip(tooltip))
-
+    if func:
+        btn.Bind(wx.EVT_BUTTON, func)
     return btn
 
 

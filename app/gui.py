@@ -1,3 +1,4 @@
+import datetime
 import os
 import subprocess
 import sys
@@ -7,11 +8,11 @@ from time import time
 import wx
 
 from app.WXVirtualList import VirtualList
-from app.file_search import locate_files_in_multiple_paths
 from app.wx_helpers import resource_path, make_button, setup_menu, create_text_control_box
 from app.wx_decorators import submit_to_pool_executor, wx_call_after
-from app.models import File, ProjectArea, available_paths, get_file_matches
+from app.models import ProjectArea, available_paths, get_file_matches, zip_up_files
 from app.db import session
+from app.uploader import upload_file
 
 thread_pool_executor = futures.ThreadPoolExecutor(max_workers=1)
 
@@ -46,8 +47,9 @@ class GUI(wx.Frame):
         col1 = wx.BoxSizer(wx.VERTICAL)
 
         path_sizer = wx.StaticBoxSizer(wx.VERTICAL, self, label='1. Add a directory to search')
-        add_folder_button = make_button(self, resource_path(r'icons/add.png'), 35, but_id=4,
-                                        tooltip='Add a new location to the saved search areas')
+        add_folder_button = make_button(self, resource_path(r'icons/add.png'), 35,
+                                        tooltip='Add a new location to the saved search areas',
+                                        func=self.add_search_path)
         path_sizer.Add(add_folder_button, 0, wx.ALL, border=5)
         col1.Add(path_sizer)
 
@@ -73,12 +75,13 @@ class GUI(wx.Frame):
         col1.Add(search_box, 0, wx.ALL, border=0)
         col1.Add(extension_box, 0, wx.ALL, border=0)
 
-        search_button = make_button(self, resource_path(r'icons/search.png'), 60, but_id=1,
-                                    tooltip='Search all your paths.')
+        search_button = make_button(self, resource_path(r'icons/search.png'), 60,
+                                    tooltip='Search all your paths.', func=self.initiate_search_process)
         col1.Add(search_button, 0, wx.ALL, border=10)
+        zip_button = make_button(self, resource_path(r'icons/all.png'), 60,
+                                 tooltip='Compress results into a neat zip file.', func=self.upload_matches_to_cloud)
+        col1.Add(zip_button, 0, wx.ALL, border=10)
 
-        self.Bind(wx.EVT_BUTTON, self.initiate_search_process, id=1)
-        self.Bind(wx.EVT_BUTTON, self.add_search_path, id=4)
         return col1
 
     def setup_file_results_area(self):
@@ -107,7 +110,7 @@ class GUI(wx.Frame):
         self.Layout()
 
     def add_search_path(self, event):
-        some_place_in_folder = self.file_selector_popup('Select Search Directory', "")
+        some_place_in_folder = self.file_selector_popup('Select Search Directory')
         if not some_place_in_folder:
             return
         p = ProjectArea(path=some_place_in_folder)
@@ -134,10 +137,7 @@ class GUI(wx.Frame):
             return
 
         self.dialog = wx.BusyInfo(f"Searching your saved location for {self.key_phrase_input_box.GetValue()}...")
-
-        phrase = self.key_phrase_input_box.GetValue() if self.key_phrase_input_box.GetValue() != '' else None
-        ext = self.file_extension_input.GetValue() if self.file_extension_input.GetValue() != '' else None
-        self.search(phrase, ext, True)
+        self.search(self.search_phrase, self.search_extension, True)
 
     @wx_call_after
     def set_sb_text(self, text=''):
@@ -147,18 +147,25 @@ class GUI(wx.Frame):
     def results_box_update(self, data):
         self.results_list_ctrl.add_data(data)
 
-
     def archive_location(self, path: ProjectArea):
         path.discover_files()
+
+    @property
+    def search_phrase(self):
+        return self.key_phrase_input_box.GetValue() if self.key_phrase_input_box.GetValue() != '' else None
+
+    @property
+    def search_extension(self):
+        return self.file_extension_input.GetValue() if self.file_extension_input.GetValue() != '' else None
 
     def search(self, phrase, ext, ignore_case):
         self.set_sb_text('Searching...')
         start = time()
-        all_matches = get_file_matches(phrase=phrase, ext=ext)
+        self.all_matches = get_file_matches(phrase=phrase, ext=ext)
 
         self.data = {}
 
-        for count, match in enumerate(all_matches):
+        for count, match in enumerate(self.all_matches):
             self.data[count] = [str(match.file_name),
                                 str(match.created),
                                 str(match.modified),
@@ -187,6 +194,16 @@ class GUI(wx.Frame):
         path = event.GetText()
         self.selected_path = next(p for p in self.available_paths if p.path == path)
 
+    def upload_matches_to_cloud(self, event):
+        files = [f.path for f in self.all_matches]
+        now = datetime.datetime.now()
+        archive_type = f'{self.search_phrase or ""}-{self.search_extension or ""}'
+        zip_file_name = f'{archive_type}-{now.year}-{now.month}-{now.day}'
+        archive_path = zip_up_files(files, zip_file_name)
+
+        upload_file(archive_path, os.path.basename(archive_path))
+        self.sb.SetStatusText('Results zipped up to cloud...')
+
     def open_search_match_file(self, event):
         for sel in self.results_list_ctrl.get_selected_items():
             filepath = self.results_list_ctrl.GetItemText(sel, 6)
@@ -202,7 +219,7 @@ class GUI(wx.Frame):
     def on_close_event(self, event):
         self.Close()
 
-    def file_selector_popup(self, promptmessage, wildcard):
+    def file_selector_popup(self, promptmessage):
         dlg = wx.DirDialog(
             self, message=promptmessage,
             style=wx.DD_DEFAULT_STYLE | wx.DD_CHANGE_DIR)
